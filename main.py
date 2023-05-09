@@ -3,7 +3,8 @@ import logging
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from transformers import GenerationConfig, pipeline, Pipeline
+from transformers import GenerationConfig, pipeline, Pipeline, AutoConfig, AutoModelForCausalLM
+from accelerate import infer_auto_device_map, init_empty_weights
 import torch
 
 logging.basicConfig(
@@ -23,9 +24,18 @@ app.add_middleware(
     CORSMiddleware
 )
 
+
+def get_device_map(max_memory: dict = None) -> dict:
+    with init_empty_weights():
+        model = AutoModelForCausalLM.from_config(AutoConfig.from_pretrained(pretrained))
+    device_map = infer_auto_device_map(model, max_memory=max_memory)
+    logger.info(f'device_map = {device_map}')
+    return device_map
+
+
 pretrained = "bigcode/starcoder"
 generation_config: GenerationConfig = GenerationConfig.from_pretrained(pretrained)
-pipe: Pipeline = pipeline("text-generation", model=pretrained, torch_dtype=torch.bfloat16, device_map='auto')
+pipe: Pipeline = pipeline("text-generation", model=pretrained, torch_dtype=torch.bfloat16, device_map=get_device_map())
 
 
 @app.post("/api/generate/")
