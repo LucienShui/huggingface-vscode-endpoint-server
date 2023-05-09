@@ -17,11 +17,6 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-try:
-    import accelerate
-except (ImportError, ModuleNotFoundError):
-    logger.warning('accelerate not installed, would not dispatch model to GPUs automatically.')
-
 app = FastAPI()
 
 app.add_middleware(
