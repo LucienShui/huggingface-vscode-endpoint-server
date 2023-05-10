@@ -1,4 +1,4 @@
-# huggingface-vscode-server
+# Hugging Face VSCode Endpoint Server
 
 starcoder server for [huggingface-vscdoe](https://github.com/huggingface/huggingface-vscode) custom endpoint.
 
