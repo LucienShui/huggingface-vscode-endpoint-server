@@ -239,3 +239,5 @@ fabric.properties
 
 # model
 bigcode
+starcoder_tiny
+starcoder

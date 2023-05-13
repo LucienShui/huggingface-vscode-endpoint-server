@@ -1,0 +1,9 @@
+POST http://localhost:8000/api/generate/
+Content-Type: application/json
+
+{
+  "inputs": "def main():",
+  "parameters": {
+    "max_new_tokens": 10
+  }
+}
