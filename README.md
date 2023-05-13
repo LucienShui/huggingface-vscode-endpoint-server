@@ -1,5 +1,16 @@
-# huggingface-vscode-server
+# Hugging Face VSCode Endpoint Server
 
 starcoder server for [huggingface-vscdoe](https://github.com/huggingface/huggingface-vscode) custom endpoint.
 
-**Seems generation model not working yet, but api's input output format is fine. I'll tying to fix it soon.**
+**Can't handle distributed inference very well yet.**
+
+## Usage
+
+Fill `http://localhost:8000/api/generate/` into `Hugging Face Code > Model ID or Endpoint` in VSCode.
+
+## API
+
+```shell
+curl -X POST http://localhost:8000/api/generate/ -d '{"inputs": "", "parameters": {"max_new_tokens": ""}}'
+# response = {"generated_text": ""}
+```
