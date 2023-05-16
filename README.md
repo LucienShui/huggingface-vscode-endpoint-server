@@ -6,6 +6,11 @@ starcoder server for [huggingface-vscdoe](https://github.com/huggingface/hugging
 
 ## Usage
 
+```shell
+pip install -r requirements.txt
+python main.py
+```
+
 Fill `http://localhost:8000/api/generate/` into `Hugging Face Code > Model ID or Endpoint` in VSCode.
 
 ## API
