@@ -1,6 +1,8 @@
-from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedTokenizer, PreTrainedModel, GenerationConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
 from transformers import Pipeline, pipeline
 import torch
+from util import logger
+import time
 
 
 class GeneratorBase:
@@ -10,64 +12,59 @@ class GeneratorBase:
     def __call__(self, query: str, parameters: dict = None) -> str:
         return self.generate(query, parameters)
 
+    def timeit(self, prompt=None):
+        if prompt is None:
+            self.t0 = time.perf_counter()
+        else:
+            t1 = time.perf_counter()
+            logger.info(f"  time for '{prompt}': {t1-self.t0:.4f}")
+            self.t0 = t1
 
-class StarCoder(GeneratorBase):
-    def __init__(self, pretrained: str, device: str = None, device_map: str = None):
+    def sanitize_parameters(self, parameters: dict = None) -> dict:
+        expected_keys = {'max_new_tokens': int, 
+                         'temperature': int,
+                         'do_sample': bool,
+                         'top_p': float,
+                         'stop': str}
+        for key in parameters.keys():
+            if key not in expected_keys:
+                logger.warning(f"generator.py: ignoring parameter {key}: {parameters[key]} No datatype has been configured yet.")
+        return {key: expected_keys[key](parameters[key]) if parameters[key] is not None and parameters[key] != "None" else None for key in expected_keys if key in parameters}
+
+
+class HfAutoModelCoder(GeneratorBase):
+    def __init__(self, pretrained: str = "bigcode/starcoder", device_map: str = "auto", bit_precission=16):
+        self.timeit()
         self.pretrained: str = pretrained
-        self.pipe: Pipeline = pipeline(
-            "text-generation", model=pretrained, torch_dtype=torch.bfloat16, device=device, device_map=device_map)
+        tokenizer = AutoTokenizer.from_pretrained(pretrained)
+        self.timeit("load tokenizer")
+        model = AutoModelForCausalLM.from_pretrained(pretrained, device_map=device_map, **self.get_load_params(bit_precission))
+        self.timeit("load model")
+        self.pipe: Pipeline = pipeline("text-generation", model=model, tokenizer=tokenizer)#, device=device)
+        self.timeit("load pipeline")
         self.generation_config = GenerationConfig.from_pretrained(pretrained)
         self.generation_config.pad_token_id = self.pipe.tokenizer.eos_token_id
 
-    def generate(self, query: str, parameters: dict) -> str:
-        config: GenerationConfig = GenerationConfig.from_dict({
+    def get_load_params(self, float_bits):
+        assert float_bits in (32, 16, 8), f"float_bits can only be set to 32, 16 or 8"
+        load_params = dict()
+        if float_bits == 16:
+            load_params = {'torch_dtype': torch.bfloat16}
+        if float_bits == 8:
+            load_params = {'load_in_8bit': True}
+        return load_params
+
+    async def generate(self, query: str, parameters: dict) -> str:
+        save_parameters = self.sanitize_parameters(parameters)
+        generation_config_dict = {
             **self.generation_config.to_dict(),
-            **parameters
-        })
+            **save_parameters
+        }
+        #logger.info(f"generate config: {generation_config_dict}")
+        config: GenerationConfig = GenerationConfig.from_dict(generation_config_dict)
+        self.timeit()
         json_response: dict = self.pipe(query, generation_config=config)[0]
         generated_text: str = json_response['generated_text']
+        self.timeit(f"inference {len(query)}/{len(generated_text)-len(query)}")
         return generated_text
 
-
-class SantaCoder(GeneratorBase):
-    def __init__(self, pretrained: str, device: str = 'cuda'):
-        self.pretrained: str = pretrained
-        self.device: str = device
-        self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(pretrained, trust_remote_code=True)
-        self.model.to(device=self.device)
-        self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(pretrained, trust_remote_code=True)
-        self.generation_config: GenerationConfig = GenerationConfig.from_model_config(self.model.config)
-        self.generation_config.pad_token_id = self.tokenizer.eos_token_id
-
-    def generate(self, query: str, parameters: dict) -> str:
-        input_ids: torch.Tensor = self.tokenizer.encode(query, return_tensors='pt').to(self.device)
-        config: GenerationConfig = GenerationConfig.from_dict({
-            **self.generation_config.to_dict(),
-            **parameters
-        })
-        output_ids: torch.Tensor = self.model.generate(input_ids, generation_config=config)
-        output_text: str = self.tokenizer.decode(
-            output_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False)
-        return output_text
-
-
-class ReplitCode(GeneratorBase):
-    def __init__(self, pretrained: str, device: str = 'cuda'):
-        self.pretrained: str = pretrained
-        self.device: str = device
-        self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(pretrained, trust_remote_code=True)
-        self.model.to(device=self.device, dtype=torch.bfloat16)
-        self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(pretrained, trust_remote_code=True)
-        self.default_parameter: dict = dict(
-            do_sample=True, top_p=0.95, top_k=4, pad_token_id=self.tokenizer.eos_token_id,
-            temperature=0.2, num_return_sequences=1, eos_token_id=self.tokenizer.eos_token_id
-        )
-
-    def generate(self, query: str, parameters: dict = None) -> str:
-        input_ids: torch.Tensor = self.tokenizer.encode(query, return_tensors='pt').to(self.device)
-        params = {**self.default_parameter, **(parameters or {})}
-        params.pop('stop')
-        output_ids: torch.Tensor = self.model.generate(input_ids, **params)
-        output_text: str = self.tokenizer.decode(
-            output_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False)
-        return output_text
