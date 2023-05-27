@@ -16,6 +16,6 @@ Fill `http://localhost:8000/api/generate/` into `Hugging Face Code > Model ID or
 ## API
 
 ```shell
-curl -X POST http://localhost:8000/api/generate/ -d '{"inputs": "", "parameters": {"max_new_tokens": ""}}'
+curl -X POST http://localhost:8000/api/generate/ -d '{"inputs": "", "parameters": {"max_new_tokens": 64}}'
 # response = {"generated_text": ""}
 ```
