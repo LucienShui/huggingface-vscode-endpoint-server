@@ -19,10 +19,16 @@ async def api(request: Request) -> dict:
 def main():
     global request_handler
     args = get_parser().parse_args()
+    ssl_certificate, ssl_key = None, None
+    if args.ssl_certificate and args.ssl_keyfile:
+        ssl_certificate = args.ssl_certificate
+        ssl_key = args.ssl_keyfile
+    
     generator: GeneratorBase = None
-    generator = HfAutoModelCoder(pretrained=args.pretrained)
+    if not args.dry_run:
+        generator = HfAutoModelCoder(pretrained=args.pretrained)
     request_handler = RequestHandler(generator=generator, auth_prefix=args.auth_prefix)
-    uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(app, host=args.host, port=args.port, ssl_keyfile=ssl_key, ssl_certfile=ssl_certificate)
 
 if __name__ == "__main__":
     main()

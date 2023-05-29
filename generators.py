@@ -20,19 +20,28 @@ class GeneratorBase:
             logger.info(f"  time for '{prompt}': {t1-self.t0:.4f}")
             self.t0 = t1
 
-    def sanitize_parameters(self, parameters: dict = None) -> dict:
-        expected_keys = {'max_new_tokens': int, 
-                         'temperature': int,
-                         'do_sample': bool,
-                         'top_p': float,
-                         'stop': str}
+    def sanitize_parameters(self, parameters: dict, parameter_key_types: dict) -> dict:
+        p_dict = {}
         for key in parameters.keys():
-            if key not in expected_keys:
-                logger.warning(f"generator.py: ignoring parameter {key}: {parameters[key]} No datatype has been configured yet.")
-        return {key: expected_keys[key](parameters[key]) if parameters[key] is not None and parameters[key] != "None" else None for key in expected_keys if key in parameters}
+            if key in parameter_key_types:
+                value = parameters[key]
+                conversion_func = parameter_key_types[key]
+                try:
+                    p_dict[key] = conversion_func(value)
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Cannot convert parameter {key}:{value} to type {conversion_func}: {e}")
+            else:
+                logger.info(f"generator.py: ignoring client parameter {key}:{value} No datatype has been configured yet.")
+        return p_dict
 
 
 class HfAutoModelCoder(GeneratorBase):
+    parameter_key_types = {'max_new_tokens': int, 
+                           'temperature': float,
+                           'do_sample': bool,
+                           'top_p': float,
+                           'stop': str}
+
     def __init__(self, pretrained: str = "bigcode/starcoder", device_map: str = "auto", bit_precission=16):
         self.timeit()
         self.pretrained: str = pretrained
@@ -40,7 +49,7 @@ class HfAutoModelCoder(GeneratorBase):
         self.timeit("load tokenizer")
         model = AutoModelForCausalLM.from_pretrained(pretrained, device_map=device_map, **self.get_load_params(bit_precission))
         self.timeit("load model")
-        self.pipe: Pipeline = pipeline("text-generation", model=model, tokenizer=tokenizer)#, device=device)
+        self.pipe: Pipeline = pipeline("text-generation", model=model, tokenizer=tokenizer)
         self.timeit("load pipeline")
         self.generation_config = GenerationConfig.from_pretrained(pretrained)
         self.generation_config.pad_token_id = self.pipe.tokenizer.eos_token_id
@@ -51,16 +60,15 @@ class HfAutoModelCoder(GeneratorBase):
         if float_bits == 16:
             load_params = {'torch_dtype': torch.bfloat16}
         if float_bits == 8:
-            load_params = {'load_in_8bit': True}
+            load_params = {'load_in_8bit': True, 'torch_dtype': torch.float16}
         return load_params
 
     async def generate(self, query: str, parameters: dict) -> str:
-        save_parameters = self.sanitize_parameters(parameters)
+        save_parameters = self.sanitize_parameters(parameters, HfAutoModelCoder.parameter_key_types)
         generation_config_dict = {
             **self.generation_config.to_dict(),
             **save_parameters
         }
-        #logger.info(f"generate config: {generation_config_dict}")
         config: GenerationConfig = GenerationConfig.from_dict(generation_config_dict)
         self.timeit()
         json_response: dict = self.pipe(query, generation_config=config)[0]

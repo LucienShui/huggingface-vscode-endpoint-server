@@ -3,6 +3,7 @@ import threading
 from collections import deque
 from fastapi import Request
 from util import logger
+import logging
 from generators import GeneratorBase
 
 class ClientRequest:
@@ -18,7 +19,7 @@ class ClientRequest:
             auth_header = request._headers['authorization']
             logger.debug(f"auth_header {auth_header}")
             if auth_header.startswith("Bearer "):
-                return auth_header[7:]
+                return auth_header[7:] + request.client.host
         return ""
 
 class ClientRequestQueue:
@@ -60,10 +61,13 @@ class ResponseCache:
     async def retrieve(self, inputs: str) -> str:
         with self._lock:
             if inputs in self._cache:
-                # strip off "<fim_prefix>" and "<fim_suffix>"
-                start_idx = 0 if len(inputs) <= 24 else 12
-                end_idx = len(inputs) if len(inputs) < 24 else len(inputs)-12
-                logger.info(f" cache hit <{inputs[start_idx:start_idx+10]}...{inputs[end_idx-10:end_idx]}>")
+                if logger.isEnabledFor(logging.DEBUG):
+                    # for debugging: strip off "<fim_prefix>" and "<fim_suffix>"
+                    start_idx = 12 if inputs.startswith("<fim_prefix>") else 0
+                    end_idx = len(inputs)-12 if inputs.endswith('<fim_middle>') else len(inputs)
+                    start_str = inputs[start_idx:start_idx+10].replace("\n"," ")
+                    end_str = inputs[end_idx-10:end_idx].replace("\n", " ")
+                    logger.debug(f" cache hit <{start_str}>...<{end_str}>")
                 generated_text: str = self._cache[inputs]
                 return generated_text
         return None
@@ -100,7 +104,7 @@ class RequestHandler:
         self.cnt += 1
         local_cnt = self.cnt
 
-        logger.debug(f"received request {local_cnt} from {request.client.host}:{request.client.port}")
+        logger.info(f"received request {local_cnt} from {request.client.host}:{request.client.port}")
         client_request: ClientRequest = await self.generate_client_request(request)
 
         if not client_request.id.startswith(self.auth_prefix):
@@ -112,7 +116,7 @@ class RequestHandler:
 
         exchanged_client_request = await self.queue.put_or_exchange(client_request)
         if exchanged_client_request is not None:
-            logger.debug(f" expired request from port {exchanged_client_request.request.client.port}")
+            logger.info(f" expired request from port {exchanged_client_request.request.client.port}")
             result = {"generated_text": "", "status": 429}
             exchanged_client_request.request.state.result = result
             exchanged_client_request.event.set()
@@ -120,7 +124,7 @@ class RequestHandler:
         logger.debug(f"waiting for {local_cnt} from port {request.client.port}")
         await client_request.event.wait()
 
-        logger.debug(f"return request {local_cnt} from port {request.client.port}")
+        logger.info(f"return request {local_cnt} from port {request.client.port}")
         return request.state.result
 
     async def generate_client_request(self, request: Request) -> ClientRequest:
@@ -128,3 +132,4 @@ class RequestHandler:
         inputs: str = json_request['inputs']
         parameters: dict = json_request['parameters']
         return ClientRequest(request, inputs, parameters)
+                               
