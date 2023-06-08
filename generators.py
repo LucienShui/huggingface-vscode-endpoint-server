@@ -1,10 +1,13 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
 from transformers import Pipeline, pipeline
 import torch
-from util import logger
 import time
+from util import logger
 
-
+class GeneratorException(Exception):
+    def __init__(self, message:str):
+        super().__init__(message)
+        
 class GeneratorBase:
     def generate(self, query: str, parameters: dict) -> str:
         raise NotImplementedError
@@ -29,11 +32,12 @@ class GeneratorBase:
                 try:
                     p_dict[key] = conversion_func(value)
                 except (ValueError, TypeError) as e:
-                    logger.warning(f"Cannot convert parameter {key}:{value} to type {conversion_func}: {e}")
+                    msg = f"Cannot convert parameter {key}:{value} to type {conversion_func}: {str(e)}"
+                    logger.debug(msg)
+                    raise GeneratorException(msg)
             else:
-                logger.info(f"generator.py: ignoring client parameter {key}:{value} No datatype has been configured yet.")
+                logger.debug(f"generator.py: ignoring client parameter {key}:{value} No datatype has been configured yet.")
         return p_dict
-
 
 class HfAutoModelCoder(GeneratorBase):
     parameter_key_types = {'max_new_tokens': int, 

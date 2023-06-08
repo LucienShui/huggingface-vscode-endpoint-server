@@ -1,10 +1,11 @@
 import asyncio
 import threading
 from collections import deque
-from fastapi import Request
-from util import logger
+from fastapi import Request, HTTPException
 import logging
-from generators import GeneratorBase
+import json
+from util import logger
+from generators import GeneratorBase, GeneratorException
 
 class ClientRequest:
     def __init__(self, request: Request, inputs: str, parameters):
@@ -47,7 +48,7 @@ class ClientRequestQueue:
                     client_id = self._queue.popleft()
                     item = self._client_items.pop(client_id)
                     return item
-            await asyncio.sleep(.05)
+            await asyncio.sleep(.01)
 
 class ResponseCache:
     def __init__(self):
@@ -89,12 +90,16 @@ class RequestHandler:
             parameters: str = client_request.parameters
             logger.debug(f"got request from queue {request.client.port}")
             generated_text = await self.response_cache.retrieve(inputs)
-            if generated_text is None:
-                if self.generator is not None:
-                    generated_text = await self.generator.generate(inputs, parameters)
-                else:
-                    generated_text = "testing without LLM"
-                await self.response_cache.update(inputs, generated_text)
+            try:
+                if generated_text is None:
+                    if self.generator is not None:
+                        generated_text = await self.generator.generate(inputs, parameters)
+                        await self.response_cache.update(inputs, generated_text)
+                    else:
+                        generated_text = "testing without LLM"
+            except GeneratorException as e:
+                # pass the error message as generated text, so that the user will see it within the IDE
+                generated_text = str(e)
             logger.debug(f"done processing request from queue {request.client.port}")
             result: dict = {"generated_text": generated_text, "status": 200}
             request.state.result = result
@@ -105,14 +110,22 @@ class RequestHandler:
         local_cnt = self.cnt
 
         logger.info(f"received request {local_cnt} from {request.client.host}:{request.client.port}")
-        client_request: ClientRequest = await self.generate_client_request(request)
+        try:
+            client_request: ClientRequest = await self.generate_client_request(request)
+        except json.decoder.JSONDecodeError as e:
+            logger.debug(f"Can't parse request from {request.client.host}:{request.client.port} -> {e}")
+            raise HTTPException(status_code=400, detail=f"Bad request: {e}")
 
         if not client_request.id.startswith(self.auth_prefix):
-            return {"generated_text": "no valid bearer token", "status": 401}
+            logger.debug(f"request from {request.client.host}:{request.client.port} with invalid bearer token: '{client_request.id}'")
+            # we don't throw an exception here, so that the user will see the error message within the IDE
+            request.state.result = {"generated_text": "invalid bearer token", "status": 401}
+            return request.state.result
 
-        generated_text = await self.response_cache.retrieve(client_request.inputs)
-        if generated_text is not None:
-            return {"generated_text": generated_text, "status": 200}
+        cached_text = await self.response_cache.retrieve(client_request.inputs)
+        if cached_text is not None:
+            request.state.result = {"generated_text": cached_text, "status": 200}
+            return request.state.result
 
         exchanged_client_request = await self.queue.put_or_exchange(client_request)
         if exchanged_client_request is not None:
@@ -126,6 +139,8 @@ class RequestHandler:
 
         logger.info(f"return request {local_cnt} from port {request.client.port}")
         return request.state.result
+    
+    
 
     async def generate_client_request(self, request: Request) -> ClientRequest:
         json_request: dict = await request.json()
