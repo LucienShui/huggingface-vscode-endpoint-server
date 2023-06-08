@@ -75,8 +75,11 @@ class HfAutoModelCoder(GeneratorBase):
         }
         config: GenerationConfig = GenerationConfig.from_dict(generation_config_dict)
         self.timeit()
-        json_response: dict = self.pipe(query, generation_config=config)[0]
+        try:
+            json_response: dict = self.pipe(query, generation_config=config)[0]
+        except RuntimeError as e:
+            logger.error(f"Llm pipeline error: {str(e)}")
+            raise GeneratorException("Internal error invoking the model.")
         generated_text: str = json_response['generated_text']
         self.timeit(f"inference {len(query)}/{len(generated_text)-len(query)}")
         return generated_text
-
