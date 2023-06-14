@@ -4,7 +4,7 @@ from typing import List
 
 from util import logger
 from api_models import GeneratorBase, GeneratorException
-from api_models import CodingApiResponse, CodingRequestPayload
+from api_models import CodingApiResponse, CodingRequestPayload, CodingParameters
 from api_models import ChatCompletionRequestPayload, ChatCompletionApiResponse, ChatCompletionApiChoice, ChatMessage, ApiUsage
 from Llm import Llm
 
@@ -47,7 +47,7 @@ class ChatGenerator(GeneratorBase):
     async def generate(self, request_payload: ChatCompletionRequestPayload) -> ChatCompletionApiResponse:
         try:
             prompt = self.chat_messages_to_prompt(request_payload.messages)
-            answer, prompt_tokens, completion_tokens = self.llm.chat(prompt, self.get_generation_config(request_payload), remove_prompt_from_reply=True)
+            answer, prompt_tokens, completion_tokens = self.llm.generate(prompt, self.get_generation_config(request_payload), remove_prompt_from_reply=True)
             api_usage: ApiUsage = self.generate_api_usage(prompt_tokens, completion_tokens)
         except (RuntimeError, AttributeError) as e:
             logger.error(f"Llm chat inference error: {str(e)}")
@@ -67,9 +67,9 @@ class CodeGenerator(GeneratorBase):
         return response
 
     async def generate(self, request_payload: CodingRequestPayload) -> CodingApiResponse:
-        generation_config_dict = request_payload.parameters.dict() if request_payload.parameters is not None else {}
+        generation_config_dict = request_payload.parameters.dict() if request_payload.parameters is not None else CodingParameters().dict()
         try:
-            answer, prompt_tokens, completion_tokens = self.llm.chat(request_payload.inputs, generation_config_dict, remove_prompt_from_reply=False)
+            answer, prompt_tokens, completion_tokens = self.llm.generate(request_payload.inputs, generation_config_dict, remove_prompt_from_reply=False)
         except (RuntimeError, AttributeError) as e:
             logger.error(f"Llm code inference error: {str(e)}")
             logger.debug(f"Full stacktrace: \n{traceback.format_exc()}")

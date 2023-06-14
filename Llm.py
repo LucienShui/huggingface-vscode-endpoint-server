@@ -102,7 +102,6 @@ class Llm:
         device_dict = defaultdict(set)
         layer_names = []
         for name, param in self.model.named_parameters():
-            #print(name, param.size())
             layer_parts = name.split(".")
             layer_name = ".".join(layer_parts[0:3])
             if layer_name not in layer_names:
@@ -110,7 +109,12 @@ class Llm:
             size_dict[layer_name] += param.numel()
             device_dict[layer_name].add(param.device)
         for layer_name in layer_names:
-            logger.debug(f"Layer: {layer_name}: {size_dict[layer_name]} on device {device_dict[layer_name]}")
+            logger.debug(f"Layer: {layer_name}: {size_dict[layer_name]/1024**2:.3f} MB on device {device_dict[layer_name]}")
+        devices = {device for device_set in device_dict.values() for device in device_set}
+        for device in devices:
+            logger.debug(f"Used GPU mem: {sum([param.numel() for _, param in self.model.named_parameters() if device == param.device])/1024**3:.3f} GB on {device}")
+        if len(devices) > 1:
+            logger.debug(f"Used GPU mem: {sum(size_dict[l] for l in size_dict.keys())/1024**3:.3f} GB in total")
 
     def strip_inputs_and_stopwords(self, outputs, input_ids):
         # remove the last token, if it was a stopping token
@@ -129,14 +133,15 @@ class Llm:
             outputs = outputs[:, len(input_ids[0]):end_idx]
         return outputs
 
-    def generate_from_ids(self, input_ids, generation_config: dict, remove_prompt_from_reply: bool=True) -> tuple:
-        #if self.max_input_tokens is not None and input_ids.shape[1] > self.max_input_tokens:
-        #    input_ids = input_ids[:, -self.max_input_tokens:]
-        #    logger.info(f"reduced input token length to {input_ids.shape}, {self.max_input_tokens}")
+    def generate_from_ids(self, inputs, generation_config: dict, remove_prompt_from_reply: bool=True) -> tuple:
+        input_ids = inputs['input_ids']
         prompt_tokens = len(input_ids[0])
         self.timeit()
         if self.model is not None:
-            outputs = self.model.generate(input_ids, **generation_config, **self.stopping_criteria_config)
+            if prompt_tokens > self.model.config.max_position_embeddings:
+                logger.debug(f"ignoring request: input sequence too long {prompt_tokens} > {self.model.config.max_position_embeddings}")
+                return self.tokenize(f"input sequence too long {prompt_tokens} > {self.model.config.max_position_embeddings}")['input_ids'], prompt_tokens, 0
+            outputs = self.model.generate(**inputs, **generation_config, **self.stopping_criteria_config, pad_token_id=self.tokenizer.eos_token_id)
         else:
             outputs = input_ids
         self.timeit(f"inference {prompt_tokens}/{len(outputs[0]) - prompt_tokens}")
@@ -145,12 +150,12 @@ class Llm:
         completion_tokens = len(outputs[0])
         return outputs, prompt_tokens, completion_tokens
 
-    def chat(self, prompt: str, generation_config: dict, remove_prompt_from_reply: bool=True) -> tuple:
+    def generate(self, prompt: str, generation_config: dict, remove_prompt_from_reply: bool=True) -> tuple:
         if self.model is None:
             return "Testing without LLM", 0, 0
 
         inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda")
-        outputs, prompt_tokens, completion_tokens = self.generate_from_ids(inputs['input_ids'], generation_config, remove_prompt_from_reply)
+        outputs, prompt_tokens, completion_tokens = self.generate_from_ids(inputs, generation_config, remove_prompt_from_reply)
         answer = self.tokenizer.batch_decode(outputs)
         return answer[0].lstrip(), prompt_tokens, completion_tokens
 
