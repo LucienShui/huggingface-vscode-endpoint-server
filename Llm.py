@@ -1,7 +1,7 @@
 import torch
 import time
 from timeit import default_timer as timer
-from transformers import AutoModelForCausalLM, LlamaForCausalLM, AutoTokenizer, LlamaTokenizer, TextStreamer
+from transformers import AutoModelForCausalLM, LlamaForCausalLM, AutoTokenizer, LlamaTokenizer
 from transformers import StoppingCriteria, StoppingCriteriaList
 from collections import defaultdict
 from util import logger
@@ -136,7 +136,7 @@ class Llm:
         prompt_tokens = len(input_ids[0])
         self.timeit()
         if self.model is not None:
-            outputs = self.model.generate(input_ids, **generation_config, **self.streamer_config, **self.stopping_criteria_config)
+            outputs = self.model.generate(input_ids, **generation_config, **self.stopping_criteria_config)
         else:
             outputs = input_ids
         self.timeit(f"inference {prompt_tokens}/{len(outputs[0]) - prompt_tokens}")
@@ -145,13 +145,9 @@ class Llm:
         completion_tokens = len(outputs[0])
         return outputs, prompt_tokens, completion_tokens
 
-    def chat(self, prompt: str, generation_config: dict, remove_prompt_from_reply: bool=True, do_stream: bool=False) -> tuple:
+    def chat(self, prompt: str, generation_config: dict, remove_prompt_from_reply: bool=True) -> tuple:
         if self.model is None:
             return "Testing without LLM", 0, 0
-
-        if do_stream and len(self.streamer_config) == 0:
-            streamer = TextStreamer(self.tokenizer)
-            self.streamer_config = {'streamer': streamer}
 
         inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda")
         outputs, prompt_tokens, completion_tokens = self.generate_from_ids(inputs['input_ids'], generation_config, remove_prompt_from_reply)
@@ -162,7 +158,7 @@ class Llm:
         cur_time = timer()
         self.delta_t = cur_time - self.prev_time
         if label is not None:
-            print(label, self.delta_t)
+            logger.debug(f"{label}: {self.delta_t}")
         self.prev_time = cur_time
 
     def get_timing(self):
