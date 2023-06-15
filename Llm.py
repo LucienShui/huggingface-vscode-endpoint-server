@@ -30,6 +30,8 @@ class Llm:
             'testing': {'model': 'gpt2'},
             }
 
+    generation_config_overrides = {'falcon': {'ignore': ['stop']}}
+
     bitsize_map = {8: {'load_in_8bit': True, 'torch_dtype': torch.float16},
                 16: {'torch_dtype': torch.bfloat16},
                 32: {'torch_dtype': torch.float}}
@@ -78,6 +80,11 @@ class Llm:
         self.timeit()
         self.model = model_loader(model_id, **params)
         self.timeit("load model")
+ 
+        self.max_position_embeddings = None
+        if hasattr(self.model.config,'max_position_embeddings'):
+            self.max_position_embeddings = self.model.config.max_position_embeddings
+            
         logger.debug(self.model.hf_device_map)
         self.print_model_layer_information()
 
@@ -89,13 +96,16 @@ class Llm:
         self.timeit("load tokenizer")
         
     def tokenize(self, text):
-        return self.tokenizer(text, return_tensors="pt").to(self.device)
+        return self.tokenizer(text, return_tensors="pt", return_token_type_ids=False).to(self.device)
 
     def add_stopwords(self, stop_word_list):
+        self.stopping_criteria_config = {'stopping_criteria': self.get_stopping_criteria_list(stop_word_list)}
+
+    def get_stopping_criteria_list(self, stop_word_list) -> StoppingCriteriaList:
         stop_encoded = [self.tokenizer.encode(w) for w in stop_word_list]
         self.stop_ids = [encoded[0] for encoded in stop_encoded]
         stopping_criteria = KeywordsStoppingCriteria(self.stop_ids)
-        self.stopping_criteria_config = {'stopping_criteria': StoppingCriteriaList([stopping_criteria])}
+        return StoppingCriteriaList([stopping_criteria])
 
     def print_model_layer_information(self):
         size_dict = defaultdict(int)
@@ -133,15 +143,31 @@ class Llm:
             outputs = outputs[:, len(input_ids[0]):end_idx]
         return outputs
 
-    def generate_from_ids(self, inputs, generation_config: dict, remove_prompt_from_reply: bool=True) -> tuple:
+    def update_generation_config(self, generation_config):
+        ignore_list = []
+        for model_prefix, overrides in Llm.generation_config_overrides.items():
+            if self.model_name.startswith(model_prefix):
+                ignore_list += overrides['ignore']
+        return {k: v for k,v in generation_config.items() if k not in ignore_list}
+
+    def generate_from_ids(self, inputs, generation_config: dict, stopping_criteria_list: StoppingCriteriaList=None, remove_prompt_from_reply: bool=True) -> tuple:
         input_ids = inputs['input_ids']
         prompt_tokens = len(input_ids[0])
+        generation_config = self.update_generation_config(generation_config)
         self.timeit()
         if self.model is not None:
-            if prompt_tokens > self.model.config.max_position_embeddings:
-                logger.debug(f"ignoring request: input sequence too long {prompt_tokens} > {self.model.config.max_position_embeddings}")
-                return self.tokenize(f"input sequence too long {prompt_tokens} > {self.model.config.max_position_embeddings}")['input_ids'], prompt_tokens, 0
-            outputs = self.model.generate(**inputs, **generation_config, **self.stopping_criteria_config, pad_token_id=self.tokenizer.eos_token_id)
+            if self.max_position_embeddings is not None and prompt_tokens > self.max_position_embeddings:
+                logger.debug(f"ignoring request: input sequence too long {prompt_tokens} > {self.max_position_embeddings}")
+                return self.tokenize(f"input sequence too long {prompt_tokens} > {self.max_position_embeddings}")['input_ids'], prompt_tokens, 0
+            if stopping_criteria_list is not None:
+                stopping_criteria_config = {'stopping_criteria': stopping_criteria_list}
+            elif self.stopping_criteria_config is not None:
+                stopping_criteria_config = self.stopping_criteria_config
+            else:
+                stopping_criteria_config = {}
+            if self.stopping_criteria_config is not None:
+                stopping_criteria_config = self.stopping_criteria_config
+            outputs = self.model.generate(**inputs, **generation_config, **stopping_criteria_config, pad_token_id=self.tokenizer.eos_token_id)
         else:
             outputs = input_ids
         self.timeit(f"inference {prompt_tokens}/{len(outputs[0]) - prompt_tokens}")
@@ -150,12 +176,12 @@ class Llm:
         completion_tokens = len(outputs[0])
         return outputs, prompt_tokens, completion_tokens
 
-    def generate(self, prompt: str, generation_config: dict, remove_prompt_from_reply: bool=True) -> tuple:
+    def generate(self, prompt: str, generation_config: dict, stopping_criteria_list: StoppingCriteriaList=None, remove_prompt_from_reply: bool=True) -> tuple:
         if self.model is None:
             return "Testing without LLM", 0, 0
 
-        inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda")
-        outputs, prompt_tokens, completion_tokens = self.generate_from_ids(inputs, generation_config, remove_prompt_from_reply)
+        inputs = self.tokenize(prompt)
+        outputs, prompt_tokens, completion_tokens = self.generate_from_ids(inputs, generation_config, stopping_criteria_list, remove_prompt_from_reply)
         answer = self.tokenizer.batch_decode(outputs)
         return answer[0].lstrip(), prompt_tokens, completion_tokens
 
