@@ -1,10 +1,12 @@
-import torch
-import time
+from collections import defaultdict
 from timeit import default_timer as timer
+
+import torch
 from transformers import AutoModelForCausalLM, LlamaForCausalLM, AutoTokenizer, LlamaTokenizer
 from transformers import StoppingCriteria, StoppingCriteriaList
-from collections import defaultdict
+
 from util import logger
+
 
 class KeywordsStoppingCriteria(StoppingCriteria):
     def __init__(self, keywords_ids:list):

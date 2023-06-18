@@ -1,11 +1,12 @@
-import time
-from pydantic import BaseModel
 from typing import Optional, List
-from util import logger
+
+from pydantic import BaseModel
+
 
 class GeneratorException(Exception):
-    def __init__(self, message:str):
+    def __init__(self, message: str):
         super().__init__(message)
+
 
 class GeneratorBase:
     def generate(self, request_payload: BaseModel) -> BaseModel:
@@ -13,7 +14,8 @@ class GeneratorBase:
 
     def generate_default_api_response(message: str, status: int) -> BaseModel:
         raise NotImplementedError
-    
+
+
 class CodingParameters(BaseModel):
     max_new_tokens: Optional[int] = 50
     temperature: Optional[float] = 1.0
@@ -24,16 +26,19 @@ class CodingParameters(BaseModel):
     def key(self):
         return (self.max_new_tokens, self.temperature, self.do_sample, self.top_p, tuple(self.stop))
 
+
 class CodingRequestPayload(BaseModel):
     inputs: str
     parameters: Optional[CodingParameters]
 
     def key(self):
         return (self.inputs, self.parameters.key if self.parameters else "")
-    
+
+
 class CodingApiResponse(BaseModel):
     generated_text: str
     status: int
+
 
 class CompletionRequestPayload(BaseModel):
     model: str
@@ -56,10 +61,12 @@ class CompletionRequestPayload(BaseModel):
     def key(self):
         return (self.model, self.prompt, self.max_tokens, self.temperature, self.user)
 
+
 class ChatMessage(BaseModel):
     role: str
     content: str
     name: Optional[str]
+
 
 class ChatCompletionRequestPayload(BaseModel):
     model: str
@@ -78,16 +85,19 @@ class ChatCompletionRequestPayload(BaseModel):
     def key(self):
         return (self.model, "\n".join([f"{role}{name}: {content}" for role, content, name in self.messages]), self.user)
 
+
 class CompletionApiChoice(BaseModel):
     text: str
     index: int
     logprobs: List[float]
     finish_reason: str
 
+
 class ApiUsage(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+
 
 class CompletionApiResponse(BaseModel):
     id: str
@@ -97,10 +107,12 @@ class CompletionApiResponse(BaseModel):
     choices: List[CompletionApiChoice]
     usage: ApiUsage
 
+
 class ChatCompletionApiChoice(BaseModel):
     index: int
     message: ChatMessage
     finish_reason: str
+
 
 class ChatCompletionApiResponse(BaseModel):
     id: str

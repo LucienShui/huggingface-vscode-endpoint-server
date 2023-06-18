@@ -2,12 +2,13 @@ import asyncio
 import threading
 import time
 from collections import deque
+
 from fastapi import Request
-import logging
-from util import logger
 from pydantic import BaseModel
 
 from api_models import GeneratorBase, GeneratorException
+from util import logger
+
 
 class ClientRequest:
     def __init__(self, request: Request, request_payload: BaseModel, cnt: int):
