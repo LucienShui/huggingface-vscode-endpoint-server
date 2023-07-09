@@ -12,7 +12,7 @@ class GeneratorBase:
 
 
 class StarCoder(GeneratorBase):
-    def __init__(self, pretrained: str, device: str = None, device_map: str = None):
+    def __init__(self, pretrained: str, device: str = 'cuda', device_map: str = None):
         self.pretrained: str = pretrained
         self.pipe: Pipeline = pipeline(
             "text-generation", model=pretrained, torch_dtype=torch.bfloat16, device=device, device_map=device_map)
