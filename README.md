@@ -8,7 +8,7 @@ starcoder server for [huggingface-vscdoe](https://github.com/huggingface/hugging
 
 ```shell
 pip install -r requirements.txt
-python main.py
+python main.py --pretrained <hugging_face_model>
 ```
 
 Fill `http://localhost:8000/api/generate/` into `Hugging Face Code > Model ID or Endpoint` in VSCode.
