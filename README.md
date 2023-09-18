@@ -1,6 +1,6 @@
 # Hugging Face VSCode Endpoint Server
 
-starcoder server for [huggingface-vscdoe](https://github.com/huggingface/huggingface-vscode) custom endpoint.
+starcoder server for [huggingface-vscode](https://github.com/huggingface/huggingface-vscode) custom endpoint.
 
 **Can't handle distributed inference very well yet.**
 
