@@ -22,7 +22,7 @@ async def api(request: Request):
     generated_text: str = generator.generate(inputs, parameters)
     logger.info(f'{request.client.host}:{request.client.port} generated_text = {json.dumps(generated_text)}')
     return {
-        "generated_text": generated_text,
+        "generated_text": generated_text.replace(inputs, ""),
         "status": 200
     }
 
